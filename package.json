@@ -1,0 +1,41 @@
+{
+  "name": "citas-servicios",
+  "version": "1.0.0",
+  "description": "Sistema de citas por WhatsApp con integración a Google Calendar",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "deploy": "npm run build && serverless deploy",
+    "test": "jest",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "keywords": [
+    "whatsapp",
+    "appointments",
+    "google-calendar",
+    "aws-lambda"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.700.0",
+    "axios": "^1.7.9",
+    "googleapis": "^144.0.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.10.5",
+    "@typescript-eslint/eslint-plugin": "^8.19.1",
+    "@typescript-eslint/parser": "^8.19.1",
+    "esbuild": "^0.24.2",
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2",
+    "serverless": "^3.40.0",
+    "serverless-dotenv-plugin": "^6.0.0",
+    "serverless-esbuild": "^1.54.3",
+    "serverless-offline": "^13.9.0",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,57 @@
+service: citas-servicios
+useDotenv: true
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: us-west-1
+  stage: ${opt:stage, 'dev'}
+  memorySize: 256
+  timeout: 30
+  environment:
+    STAGE: ${self:provider.stage}
+    WHATSAPP_VERIFY_TOKEN: ${env:WHATSAPP_VERIFY_TOKEN}
+    WHATSAPP_ACCESS_TOKEN: ${env:WHATSAPP_ACCESS_TOKEN}
+    WHATSAPP_PHONE_NUMBER_ID: ${env:WHATSAPP_PHONE_NUMBER_ID}
+    GOOGLE_CALENDAR_ID: ${env:GOOGLE_CALENDAR_ID}
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: ${env:GOOGLE_SERVICE_ACCOUNT_EMAIL}
+    GOOGLE_SERVICE_ACCOUNT_KEY: ${env:GOOGLE_SERVICE_ACCOUNT_KEY}
+  # IAM permissions not needed for env vars
+
+plugins:
+  - serverless-esbuild
+  - serverless-offline
+  - serverless-dotenv-plugin
+
+custom:
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap: true
+    exclude:
+      - '@aws-sdk/*'
+    target: node20
+    platform: node
+    concurrency: 10
+
+
+functions:
+  whatsappWebhook:
+    handler: src/handlers/webhook.handler
+    events:
+      - http:
+          path: webhook
+          method: get
+          cors: true
+      - http:
+          path: webhook
+          method: post
+          cors: true
+
+package:
+  individually: true
+  exclude:
+    - node_modules/**
+    - .git/**
+    - .vscode/**
+    - '*.md'
