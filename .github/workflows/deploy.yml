@@ -1,0 +1,43 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Create .env file
+        run: echo "${{ secrets.ENV_FILE_CONTENT }}" > .env
+
+      - name: Set AWS Region
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "AWS_REGION=${{ vars.AWS_REGION_PROD }}" >> $GITHUB_ENV
+            echo "STAGE=prod" >> $GITHUB_ENV
+          else
+            echo "AWS_REGION=${{ vars.AWS_REGION_DEV }}" >> $GITHUB_ENV
+            echo "STAGE=dev" >> $GITHUB_ENV
+          fi
+
+      - name: Serverless Deploy
+        uses: serverless/github-action@v3
+        with:
+          args: deploy --stage ${{ env.STAGE }} --region ${{ env.AWS_REGION }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
