@@ -12,6 +12,7 @@ async function getCalendarClient(): Promise<calendar_v3.Calendar> {
         return calendarClient;
     }
 
+
     try {
         const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
         let privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -28,7 +29,31 @@ async function getCalendarClient(): Promise<calendar_v3.Calendar> {
             .trim();
 
         // 2. Handle potentially escaped newlines
-        const formattedKey = cleanedKey.replace(/\\n/g, '\n');
+        let formattedKey = cleanedKey.replace(/\\n/g, '\n');
+
+        // 3. Convert PKCS#8 to PKCS#1 if needed (for older OpenSSL compatibility)
+        // AWS Lambda may have older OpenSSL that doesn't support PKCS#8 format
+        if (formattedKey.includes('BEGIN PRIVATE KEY')) {
+            console.log('Detected PKCS#8 format, converting to PKCS#1 for compatibility...');
+            try {
+                const crypto = require('crypto');
+                // Create a KeyObject from the PKCS#8 key
+                const keyObject = crypto.createPrivateKey({
+                    key: formattedKey,
+                    format: 'pem',
+                    type: 'pkcs8'
+                });
+                // Export as PKCS#1 (traditional RSA format)
+                formattedKey = keyObject.export({
+                    type: 'pkcs1',
+                    format: 'pem'
+                }).toString();
+                console.log('Successfully converted to PKCS#1 format');
+            } catch (conversionError) {
+                console.warn('Could not convert key format, using original:', conversionError);
+                // If conversion fails, continue with original key
+            }
+        }
 
         // Log key info for debugging (masked for security)
         console.log(`Initializing calendar with email: ${email}`);
