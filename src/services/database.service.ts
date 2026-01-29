@@ -109,26 +109,24 @@ export async function saveAppointment(params: SaveAppointmentParams): Promise<Sa
         const collection = await getAppointmentsCollection();
         const now = new Date();
 
-        const document: AppointmentDocument = {
-            _id: params.customerPhone,
-            appointmentId,
-            customerName: params.customerName,
-            customerPhone: params.customerPhone,
-            receiverPhone,
-            eventDate: params.eventDate,
-            eventTime: params.eventTime,
-            eventId: params.eventId,
-            createdAt: now,
-            updatedAt: now,
-        };
-
         // Use updateOne with upsert to handle potential duplicates
         // If customer books another appointment, it will update the existing record
         await collection.updateOne(
             { _id: params.customerPhone },
             {
-                $set: document,
-                $setOnInsert: { createdAt: now }
+                $set: {
+                    appointmentId,
+                    customerName: params.customerName,
+                    customerPhone: params.customerPhone,
+                    receiverPhone,
+                    eventDate: params.eventDate,
+                    eventTime: params.eventTime,
+                    eventId: params.eventId,
+                    updatedAt: now,
+                },
+                $setOnInsert: {
+                    createdAt: now
+                }
             },
             { upsert: true }
         );
