@@ -12,6 +12,7 @@ export interface AppointmentResponse {
     eventId?: string;
     eventLink?: string;
     meetLink?: string;
+    appointmentId?: string; // Unique 6-character appointment identifier
     message: string;
     error?: string;
 }

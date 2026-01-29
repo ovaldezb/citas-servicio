@@ -1,7 +1,8 @@
 import { WhatsAppMessage } from '../types/whatsapp.types';
 import { UserSession, ConversationState, AppointmentData } from '../types/appointment.types';
-import { sendTextMessage } from './whatsapp.service';
+import { sendTextMessage, sendButtonMessage } from './whatsapp.service';
 import { createAppointment, checkAvailability } from './calendar.service';
+
 
 // In-memory session storage (consider using DynamoDB for production)
 const sessions = new Map<string, UserSession>();
@@ -21,9 +22,17 @@ export async function handleIncomingMessage(message: WhatsAppMessage): Promise<v
 
     const fromRaw = incomingMessage.from;
     const fromNormalized = normalizePhoneNumber(fromRaw);
-    const messageText = incomingMessage.text?.body?.trim() || '';
 
-    console.log(`Message from ${fromRaw} (normalized: ${fromNormalized}): ${messageText}`);
+    // Extract message text or button reply ID
+    let messageText = '';
+    if (incomingMessage.type === 'text') {
+        messageText = incomingMessage.text?.body?.trim() || '';
+    } else if (incomingMessage.type === 'interactive') {
+        messageText = incomingMessage.interactive?.button_reply?.id || '';
+    }
+
+    console.log(`Message from ${fromRaw} (normalized: ${fromNormalized}, type: ${incomingMessage.type}): ${messageText}`);
+
 
     // Get or create session using normalized phone
     let session = sessions.get(fromNormalized);
@@ -176,12 +185,20 @@ async function handleTimeInput(session: UserSession, timeStr: string): Promise<v
     session.data.appointmentTime = `${hours.padStart(2, '0')}:${minutes}`;
 
     // Check availability
-    const isAvailable = await checkAvailability(
+    const availabilityResult = await checkAvailability(
         session.data.appointmentDate!,
         session.data.appointmentTime
     );
 
-    if (!isAvailable) {
+    if (availabilityResult.error) {
+        await sendTextMessage(
+            session.phone,
+            `❌ ${availabilityResult.error}\n\nPor favor intenta de nuevo más tarde o contacta al administrador.`
+        );
+        return;
+    }
+
+    if (!availabilityResult.available) {
         await sendTextMessage(
             session.phone,
             'Lo siento, ese horario no está disponible. Por favor selecciona otra hora.'
@@ -189,18 +206,27 @@ async function handleTimeInput(session: UserSession, timeStr: string): Promise<v
         return;
     }
 
-    // Show confirmation
-    const confirmationMessage = `📋 Resumen de tu cita:\n\n👤 Nombre: ${session.data.customerName}\n📅 Fecha: ${formatDate(session.data.appointmentDate!)}\n⏰ Hora: ${session.data.appointmentTime}\n\n¿Confirmas esta cita?\nResponde "si" para confirmar o "no" para cancelar.`;
+    // Show confirmation with buttons
+    const confirmationBody = `📋 Resumen de tu cita:\n\n👤 Nombre: ${session.data.customerName}\n📅 Fecha: ${formatDate(session.data.appointmentDate!)}\n⏰ Hora: ${session.data.appointmentTime}\n\n¿Confirmas esta cita?`;
 
-    await sendTextMessage(session.phone, confirmationMessage);
+    await sendButtonMessage(
+        session.phone,
+        confirmationBody,
+        [
+            { id: 'confirm_yes', title: 'Confirmar ✅' },
+            { id: 'confirm_no', title: 'Cancelar ❌' }
+        ]
+    );
     session.state = ConversationState.CONFIRMATION;
 }
+
 
 /**
  * Handle confirmation
  */
 async function handleConfirmation(session: UserSession, response: string): Promise<void> {
-    if (response === 'si' || response === 'sí' || response === 'confirmar') {
+    if (response === 'confirm_yes' || response === 'si' || response === 'sí' || response === 'confirmar') {
+
         // Create appointment
         const appointmentData: AppointmentData = {
             customerName: session.data.customerName!,
@@ -212,7 +238,14 @@ async function handleConfirmation(session: UserSession, response: string): Promi
         const result = await createAppointment(appointmentData);
 
         if (result.success) {
-            const successMessage = `✅ ¡Cita confirmada!\n\nTu cita ha sido agendada exitosamente para el ${formatDate(appointmentData.appointmentDate)} a las ${appointmentData.appointmentTime}.\n\nRecibirás un recordatorio antes de tu cita.\n\n¡Gracias! 😊`;
+            let successMessage = `✅ ¡Cita confirmada!\n\n`;
+
+            // Add appointment ID if available
+            if (result.appointmentId) {
+                successMessage += `📋 ID de Cita: ${result.appointmentId}\n\n`;
+            }
+
+            successMessage += `Tu cita ha sido agendada exitosamente para el ${formatDate(appointmentData.appointmentDate)} a las ${appointmentData.appointmentTime}.\n\nRecibirás un recordatorio antes de tu cita.\n\n¡Gracias! 😊`;
 
             await sendTextMessage(session.phone, successMessage);
         } else {
@@ -225,7 +258,8 @@ async function handleConfirmation(session: UserSession, response: string): Promi
         // Reset session
         session.state = ConversationState.COMPLETED;
         sessions.delete(session.phone);
-    } else if (response === 'no' || response === 'cancelar') {
+    } else if (response === 'confirm_no' || response === 'no' || response === 'cancelar') {
+
         await sendTextMessage(
             session.phone,
             'Cita cancelada. Escribe "hola" si deseas agendar una nueva cita.'

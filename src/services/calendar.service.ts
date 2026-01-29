@@ -1,5 +1,6 @@
 import { google, calendar_v3 } from 'googleapis';
 import { AppointmentData, AppointmentResponse } from '../types/appointment.types';
+import { saveAppointment } from './database.service';
 
 let calendarClient: calendar_v3.Calendar | null = null;
 
@@ -106,10 +107,26 @@ export async function createAppointment(
 
         console.log('Event created:', response.data);
 
+        // Save appointment to MongoDB
+        const dbResult = await saveAppointment({
+            customerName: appointmentData.customerName,
+            customerPhone: appointmentData.customerPhone,
+            eventDate: appointmentData.appointmentDate,
+            eventTime: appointmentData.appointmentTime,
+            eventId: response.data.id || '',
+        });
+
+        // Log if MongoDB save failed, but don't fail the entire operation
+        // since the appointment is already in Google Calendar
+        if (!dbResult.success) {
+            console.error('Failed to save appointment to MongoDB:', dbResult.error);
+        }
+
         return {
             success: true,
             eventId: response.data.id || undefined,
             eventLink: response.data.htmlLink || undefined,
+            appointmentId: dbResult.appointmentId,
             message: 'Cita creada exitosamente',
         };
     } catch (error) {
@@ -125,7 +142,11 @@ export async function createAppointment(
 /**
  * Check if a time slot is available
  */
-export async function checkAvailability(date: string, time: string): Promise<boolean> {
+/**
+ * Check if a time slot is available
+ */
+export async function checkAvailability(date: string, time: string): Promise<{ available: boolean; error?: string }> {
+
     try {
         const calendar = await getCalendarClient();
         const calendarId = process.env.GOOGLE_CALENDAR_ID;
@@ -146,26 +167,38 @@ export async function checkAvailability(date: string, time: string): Promise<boo
 
         const startStr = formatLocal(startDateTime);
         const endStr = formatLocal(endDateTime);
+        const offset = '-06:00'; // America/Mexico_City
 
-        console.log(`Checking availability for: ${startStr} to ${endStr} (TZ: America/Mexico_City)`);
+        console.log(`Checking availability for: ${startStr}${offset} to ${endStr}${offset}`);
 
         const response = await calendar.events.list({
             calendarId,
-            timeMin: `${startStr}Z`, // Adding Z here because list API often expects offset, or we can use offset -06:00
-            timeMax: `${endStr}Z`,
+            timeMin: `${startStr}${offset}`,
+            timeMax: `${endStr}${offset}`,
             singleEvents: true,
         });
 
         const events = response.data.items || [];
-        console.log(`Found ${events.length} events in this range:`, JSON.stringify(events.map(e => ({
+
+        // Filter out cancelled events and ensure they actually overlap
+        const activeEvents = events.filter(e => e.status !== 'cancelled');
+
+        console.log(`Found ${activeEvents.length} active events in this range:`, JSON.stringify(activeEvents.map(e => ({
             summary: e.summary,
             start: e.start,
-            end: e.end
+            end: e.end,
+            status: e.status
         })), null, 2));
 
-        return events.length === 0; // Available if no events found
-    } catch (error) {
+        return { available: activeEvents.length === 0 };
+    } catch (error: any) {
         console.error('Error checking availability:', error);
-        return false;
+        // Distinguish between "no events found" and "system error"
+        const message = error.response?.data?.error?.message || error.message || 'Unknown error';
+        return {
+            available: false,
+            error: `Error de Google Calendar: ${message}. Verifica que el calendario esté compartido con la Service Account.`
+        };
     }
 }
+
