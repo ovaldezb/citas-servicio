@@ -104,10 +104,14 @@ export async function createAppointment(
         const startStr = formatLocal(startDateTime);
         const endStr = formatLocal(endDateTime);
 
-        // Create event
+        // Generate appointment ID first so we can include it in the event
+        const { generateAppointmentId } = await import('./database.service');
+        const appointmentId = await generateAppointmentId();
+
+        // Create event with appointmentId in description
         const event: calendar_v3.Schema$Event = {
             summary: `Cita - ${appointmentData.customerName}`,
-            description: `Cliente: ${appointmentData.customerName}\nTeléfono: ${appointmentData.customerPhone}\n${appointmentData.serviceType ? `Servicio: ${appointmentData.serviceType}\n` : ''}${appointmentData.notes ? `Notas: ${appointmentData.notes}` : ''}`,
+            description: `ID de Cita: ${appointmentId}\n\nCliente: ${appointmentData.customerName}\nTeléfono: ${appointmentData.customerPhone}\n${appointmentData.serviceType ? `Servicio: ${appointmentData.serviceType}\n` : ''}${appointmentData.notes ? `Notas: ${appointmentData.notes}` : ''}`,
             start: {
                 dateTime: startStr,
                 timeZone: 'America/Mexico_City',
@@ -132,14 +136,14 @@ export async function createAppointment(
 
         console.log('Event created:', response.data);
 
-        // Save appointment to MongoDB
+        // Save appointment to MongoDB with the pre-generated appointmentId
         const dbResult = await saveAppointment({
             customerName: appointmentData.customerName,
             customerPhone: appointmentData.customerPhone,
             eventDate: appointmentData.appointmentDate,
             eventTime: appointmentData.appointmentTime,
             eventId: response.data.id || '',
-        });
+        }, appointmentId);
 
         // Log if MongoDB save failed, but don't fail the entire operation
         // since the appointment is already in Google Calendar
@@ -151,7 +155,7 @@ export async function createAppointment(
             success: true,
             eventId: response.data.id || undefined,
             eventLink: response.data.htmlLink || undefined,
-            appointmentId: dbResult.appointmentId,
+            appointmentId: appointmentId,
             message: 'Cita creada exitosamente',
         };
     } catch (error) {

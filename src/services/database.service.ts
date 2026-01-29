@@ -96,40 +96,30 @@ export async function generateAppointmentId(): Promise<string> {
 /**
  * Save appointment to MongoDB
  */
-export async function saveAppointment(params: SaveAppointmentParams): Promise<SaveAppointmentResult> {
+export async function saveAppointment(params: SaveAppointmentParams, appointmentId: string): Promise<SaveAppointmentResult> {
     try {
         const receiverPhone = process.env.RECEIVER_PHONE;
         if (!receiverPhone) {
             throw new Error('RECEIVER_PHONE environment variable is not set');
         }
 
-        // Generate unique appointment ID
-        const appointmentId = await generateAppointmentId();
-
         const collection = await getAppointmentsCollection();
         const now = new Date();
 
-        // Use updateOne with upsert to handle potential duplicates
-        // If customer books another appointment, it will update the existing record
-        await collection.updateOne(
-            { _id: params.customerPhone },
-            {
-                $set: {
-                    appointmentId,
-                    customerName: params.customerName,
-                    customerPhone: params.customerPhone,
-                    receiverPhone,
-                    eventDate: params.eventDate,
-                    eventTime: params.eventTime,
-                    eventId: params.eventId,
-                    updatedAt: now,
-                },
-                $setOnInsert: {
-                    createdAt: now
-                }
-            },
-            { upsert: true }
-        );
+        const document: Partial<AppointmentDocument> = {
+            appointmentId,
+            customerName: params.customerName,
+            customerPhone: params.customerPhone,
+            receiverPhone,
+            eventDate: params.eventDate,
+            eventTime: params.eventTime,
+            eventId: params.eventId,
+            createdAt: now,
+            updatedAt: now,
+        };
+
+        // Insert new appointment document
+        await collection.insertOne(document as AppointmentDocument);
 
         console.log(`Appointment saved successfully with ID: ${appointmentId}`);
 
@@ -152,7 +142,7 @@ export async function saveAppointment(params: SaveAppointmentParams): Promise<Sa
 export async function getAppointmentByPhone(phone: string): Promise<AppointmentDocument | null> {
     try {
         const collection = await getAppointmentsCollection();
-        return await collection.findOne({ _id: phone });
+        return await collection.findOne({ customerPhone: phone });
     } catch (error) {
         console.error('Error getting appointment by phone:', error);
         return null;
