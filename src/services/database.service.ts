@@ -1,5 +1,5 @@
 import { MongoClient, Db, Collection } from 'mongodb';
-import { AppointmentDocument, SaveAppointmentParams, SaveAppointmentResult } from '../types/database.types';
+import { AppointmentDocument, AppointmentStatus, SaveAppointmentParams, SaveAppointmentResult } from '../types/database.types';
 
 let mongoClient: MongoClient | null = null;
 let db: Db | null = null;
@@ -114,6 +114,7 @@ export async function saveAppointment(params: SaveAppointmentParams, appointment
             eventDate: params.eventDate,
             eventTime: params.eventTime,
             eventId: params.eventId,
+            status: AppointmentStatus.ACTIVA, // Initial status
             createdAt: now,
             updatedAt: now,
         };
@@ -159,5 +160,72 @@ export async function getAppointmentById(appointmentId: string): Promise<Appoint
     } catch (error) {
         console.error('Error getting appointment by ID:', error);
         return null;
+    }
+}
+/**
+ * Cancel appointment by updating status to CANCELADA
+ */
+export async function cancelAppointmentById(appointmentId: string): Promise<{
+    success: boolean;
+    appointment?: AppointmentDocument | null;
+    error?: string;
+}> {
+    try {
+        const collection = await getAppointmentsCollection();
+        
+        // Find the appointment first (only if it's active)
+        const appointment = await collection.findOne({ 
+            appointmentId,
+            status: AppointmentStatus.ACTIVA
+        });
+        
+        if (!appointment) {
+            return {
+                success: false,
+                error: 'Cita no encontrada o ya está cancelada',
+            };
+        }
+
+        // Update status to CANCELADA
+        const now = new Date();
+        await collection.updateOne(
+            { appointmentId },
+            {
+                $set: {
+                    status: AppointmentStatus.CANCELADA,
+                    cancelledAt: now,
+                    updatedAt: now,
+                }
+            }
+        );
+
+        console.log(`Appointment ${appointmentId} cancelled (status updated to CANCELADA)`);
+
+        return {
+            success: true,
+            appointment,
+        };
+    } catch (error) {
+        console.error('Error cancelling appointment in MongoDB:', error);
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+        };
+    }
+}
+
+/**
+ * Get active appointments by customer phone
+ */
+export async function getActiveAppointmentsByPhone(phone: string): Promise<AppointmentDocument[]> {
+    try {
+        const collection = await getAppointmentsCollection();
+        return await collection.find({ 
+            customerPhone: phone,
+            status: AppointmentStatus.ACTIVA 
+        }).toArray();
+    } catch (error) {
+        console.error('Error getting active appointments by phone:', error);
+        return [];
     }
 }

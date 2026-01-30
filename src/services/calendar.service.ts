@@ -231,3 +231,41 @@ export async function checkAvailability(date: string, time: string): Promise<{ a
     }
 }
 
+
+/**
+ * Cancel appointment in Google Calendar
+ */
+export async function cancelAppointment(eventId: string): Promise<{
+    success: boolean;
+    message: string;
+    error?: string;
+}> {
+    try {
+        const calendar = await getCalendarClient();
+        const calendarId = process.env.GOOGLE_CALENDAR_ID;
+
+        if (!calendarId) {
+            throw new Error('GOOGLE_CALENDAR_ID not configured');
+        }
+
+        // Delete event from Google Calendar
+        await calendar.events.delete({
+            calendarId,
+            eventId,
+        });
+
+        console.log(`Event ${eventId} deleted from Google Calendar`);
+
+        return {
+            success: true,
+            message: 'Cita cancelada en Google Calendar',
+        };
+    } catch (error) {
+        console.error('Error canceling appointment in Calendar:', error);
+        return {
+            success: false,
+            message: 'Error al cancelar la cita en Google Calendar',
+            error: error instanceof Error ? error.message : 'Unknown error',
+        };
+    }
+}

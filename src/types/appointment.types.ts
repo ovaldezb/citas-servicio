@@ -24,6 +24,7 @@ export enum ConversationState {
     WAITING_TIME = 'WAITING_TIME',
     WAITING_SERVICE = 'WAITING_SERVICE',
     CONFIRMATION = 'CONFIRMATION',
+    CANCELLATION_CONFIRMATION = 'CANCELLATION_CONFIRMATION',
     COMPLETED = 'COMPLETED',
 }
 
@@ -31,6 +32,6 @@ export interface UserSession {
     sessionKey: string; // The normalized phone number used for the map key
     phone: string;      // The original phone number used for WhatsApp API
     state: ConversationState;
-    data: Partial<AppointmentData>;
+    data: Partial<AppointmentData> & { appointmentId?: string }; // Add appointmentId for cancellation flow
     lastInteraction: number;
 }
