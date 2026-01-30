@@ -1,7 +1,8 @@
 import { WhatsAppMessage } from '../types/whatsapp.types';
 import { UserSession, ConversationState, AppointmentData } from '../types/appointment.types';
 import { sendTextMessage, sendButtonMessage } from './whatsapp.service';
-import { createAppointment, checkAvailability } from './calendar.service';
+import { createAppointment, checkAvailability, cancelAppointment } from './calendar.service';
+import { getAppointmentById, cancelAppointmentById } from './database.service';
 
 
 // In-memory session storage (consider using DynamoDB for production)
@@ -60,6 +61,12 @@ export async function handleIncomingMessage(message: WhatsAppMessage): Promise<v
 async function processMessage(session: UserSession, message: string): Promise<void> {
     const lowerMessage = message.toLowerCase();
 
+    // Check for cancellation command
+    if (lowerMessage.startsWith('cancelar')) {
+        await handleCancellationRequest(session, message);
+        return;
+    }
+
     switch (session.state) {
         case ConversationState.INITIAL:
             await handleInitialState(session, message);
@@ -79,6 +86,10 @@ async function processMessage(session: UserSession, message: string): Promise<vo
 
         case ConversationState.CONFIRMATION:
             await handleConfirmation(session, lowerMessage);
+            break;
+
+        case ConversationState.CANCELLATION_CONFIRMATION:
+            await handleCancellationConfirmation(session, lowerMessage);
             break;
 
         default:
@@ -298,4 +309,144 @@ function normalizePhoneNumber(phone: string): string {
     }
 
     return normalized;
+}
+
+/**
+ * Handle cancellation request
+ */
+async function handleCancellationRequest(session: UserSession, message: string): Promise<void> {
+    // Extract appointment ID from message
+    // Expected format: "cancelar A3B7C9" or just "cancelar A3B7C9"
+    const parts = message.trim().split(/\s+/);
+    
+    if (parts.length < 2) {
+        await sendTextMessage(
+            session.phone,
+            'Para cancelar una cita, envía: cancelar [ID]\n\nEjemplo: cancelar A3B7C9'
+        );
+        return;
+    }
+
+    const appointmentId = parts[1].toUpperCase();
+
+    // Validate appointment ID format (6 alphanumeric characters)
+    if (!/^[A-Z0-9]{6}$/.test(appointmentId)) {
+        await sendTextMessage(
+            session.phone,
+            'ID de cita inválido. Debe ser de 6 caracteres.\n\nEjemplo: A3B7C9'
+        );
+        return;
+    }
+
+    // Get appointment from database
+    const appointment = await getAppointmentById(appointmentId);
+
+    if (!appointment) {
+        await sendTextMessage(
+            session.phone,
+            `❌ No se encontró ninguna cita con el ID: ${appointmentId}\n\nVerifica el ID e intenta de nuevo.`
+        );
+        return;
+    }
+
+    // Verify the appointment belongs to this user
+    if (appointment.customerPhone !== session.phone) {
+        await sendTextMessage(
+            session.phone,
+            `❌ Esta cita no te pertenece.`
+        );
+        return;
+    }
+
+    // Check if appointment is already cancelled
+    if (appointment.status === 'CANCELADA') {
+        await sendTextMessage(
+            session.phone,
+            `❌ Esta cita ya fue cancelada anteriormente.`
+        );
+        return;
+    }
+
+    // Store appointment ID in session for confirmation
+    session.data.appointmentId = appointmentId;
+
+    // Ask for confirmation
+    const confirmationMessage = `📋 Cita encontrada:\n\n` +
+        `ID: ${appointment.appointmentId}\n` +
+        `Nombre: ${appointment.customerName}\n` +
+        `Fecha: ${formatDate(appointment.eventDate)}\n` +
+        `Hora: ${appointment.eventTime}\n\n` +
+        `¿Estás seguro de que deseas cancelar esta cita?`;
+
+    await sendButtonMessage(
+        session.phone,
+        confirmationMessage,
+        [
+            { id: 'cancel_yes', title: 'Sí, cancelar' },
+            { id: 'cancel_no', title: 'No' }
+        ]
+    );
+
+    session.state = ConversationState.CANCELLATION_CONFIRMATION;
+}
+
+/**
+ * Handle cancellation confirmation
+ */
+async function handleCancellationConfirmation(session: UserSession, response: string): Promise<void> {
+    if (response === 'cancel_yes' || response === 'si' || response === 'sí') {
+        const appointmentId = session.data.appointmentId;
+
+        if (!appointmentId) {
+            await sendTextMessage(session.phone, 'Error: No se encontró el ID de la cita.');
+            session.state = ConversationState.INITIAL;
+            return;
+        }
+
+        // Update status to CANCELADA in MongoDB
+        const dbResult = await cancelAppointmentById(appointmentId);
+
+        if (!dbResult.success || !dbResult.appointment) {
+            await sendTextMessage(
+                session.phone,
+                `❌ Error al cancelar la cita: ${dbResult.error || 'Unknown error'}`
+            );
+            session.state = ConversationState.INITIAL;
+            return;
+        }
+
+        // Delete from Google Calendar
+        const calendarResult = await cancelAppointment(dbResult.appointment.eventId);
+
+        if (calendarResult.success) {
+            await sendTextMessage(
+                session.phone,
+                `✅ Tu cita ${appointmentId} ha sido cancelada exitosamente.\n\n` +
+                `La cita ha sido eliminada de tu calendario.\n\n` +
+                `Si necesitas agendar una nueva cita, escribe "hola".`
+            );
+        } else {
+            await sendTextMessage(
+                session.phone,
+                `⚠️ La cita fue marcada como cancelada, pero hubo un problema al eliminarla del calendario.\n\n` +
+                `Por favor contacta al administrador.`
+            );
+        }
+
+        // Reset session
+        session.state = ConversationState.COMPLETED;
+        sessions.delete(session.phone);
+    } else if (response === 'cancel_no' || response === 'no') {
+        await sendTextMessage(
+            session.phone,
+            'Cancelación abortada. Tu cita sigue activa.\n\nEscribe "hola" si necesitas ayuda.'
+        );
+        session.state = ConversationState.INITIAL;
+        sessions.delete(session.phone);
+    } else {
+        await sendTextMessage(
+            session.phone,
+            'Por favor responde "si" para confirmar la cancelación o "no" para mantener la cita.'
+        );
+    }
 }
