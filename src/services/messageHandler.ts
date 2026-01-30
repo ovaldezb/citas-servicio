@@ -318,7 +318,7 @@ async function handleCancellationRequest(session: UserSession, message: string):
     // Extract appointment ID from message
     // Expected format: "cancelar A3B7C9" or just "cancelar A3B7C9"
     const parts = message.trim().split(/\s+/);
-    
+
     if (parts.length < 2) {
         await sendTextMessage(
             session.phone,
@@ -394,6 +394,8 @@ async function handleCancellationRequest(session: UserSession, message: string):
  * Handle cancellation confirmation
  */
 async function handleCancellationConfirmation(session: UserSession, response: string): Promise<void> {
+    console.log(`handleCancellationConfirmation called with response: "${response}", session state: ${session.state}`);
+
     if (response === 'cancel_yes' || response === 'si' || response === 'sí') {
         const appointmentId = session.data.appointmentId;
 
@@ -402,6 +404,8 @@ async function handleCancellationConfirmation(session: UserSession, response: st
             session.state = ConversationState.INITIAL;
             return;
         }
+
+        console.log(`Cancelling appointment: ${appointmentId}`);
 
         // Update status to CANCELADA in MongoDB
         const dbResult = await cancelAppointmentById(appointmentId);
@@ -415,10 +419,13 @@ async function handleCancellationConfirmation(session: UserSession, response: st
             return;
         }
 
+        console.log(`MongoDB updated successfully, now deleting from Calendar`);
+
         // Delete from Google Calendar
         const calendarResult = await cancelAppointment(dbResult.appointment.eventId);
 
         if (calendarResult.success) {
+            console.log(`Calendar event deleted successfully`);
             await sendTextMessage(
                 session.phone,
                 `✅ Tu cita ${appointmentId} ha sido cancelada exitosamente.\n\n` +
@@ -426,6 +433,7 @@ async function handleCancellationConfirmation(session: UserSession, response: st
                 `Si necesitas agendar una nueva cita, escribe "hola".`
             );
         } else {
+            console.log(`Calendar deletion failed: ${calendarResult.error}`);
             await sendTextMessage(
                 session.phone,
                 `⚠️ La cita fue marcada como cancelada, pero hubo un problema al eliminarla del calendario.\n\n` +
@@ -436,6 +444,7 @@ async function handleCancellationConfirmation(session: UserSession, response: st
         // Reset session
         session.state = ConversationState.COMPLETED;
         sessions.delete(session.phone);
+        console.log(`Session deleted, cancellation complete`);
     } else if (response === 'cancel_no' || response === 'no') {
         await sendTextMessage(
             session.phone,
@@ -444,6 +453,7 @@ async function handleCancellationConfirmation(session: UserSession, response: st
         session.state = ConversationState.INITIAL;
         sessions.delete(session.phone);
     } else {
+        console.log(`Unexpected response in cancellation confirmation: "${response}"`);
         await sendTextMessage(
             session.phone,
             'Por favor responde "si" para confirmar la cancelación o "no" para mantener la cita.'
