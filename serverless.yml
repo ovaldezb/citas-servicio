@@ -16,6 +16,10 @@ provider:
     GOOGLE_CALENDAR_ID: ${env:GOOGLE_CALENDAR_ID}
     GOOGLE_SERVICE_ACCOUNT_EMAIL: ${env:GOOGLE_SERVICE_ACCOUNT_EMAIL}
     GOOGLE_SERVICE_ACCOUNT_KEY: ${env:GOOGLE_SERVICE_ACCOUNT_KEY}
+    MONGODB_URI: ${env:MONGODB_URI}
+    MONGODB_DATABASE: ${env:MONGODB_DATABASE}
+    MONGODB_COLLECTION: ${env:MONGODB_COLLECTION}
+    RECEIVER_PHONE: ${env:RECEIVER_PHONE}
   # IAM permissions not needed for env vars
 
 plugins:
@@ -46,6 +50,30 @@ functions:
       - http:
           path: webhook
           method: post
+          cors: true
+
+  accounts:
+    handler: src/handlers/accounts.handler
+    events:
+      - http:
+          path: accounts
+          method: get
+          cors: true
+      - http:
+          path: accounts/{phone}
+          method: get
+          cors: true
+      - http:
+          path: accounts
+          method: post
+          cors: true
+      - http:
+          path: accounts/{phone}
+          method: put
+          cors: true
+      - http:
+          path: accounts/{phone}
+          method: delete
           cors: true
 
 package:
